@@ -8,6 +8,9 @@ create table test_pay (
 
 create sequence test_data_seq;
 
+-- не создаю первичный/уникальный ключ на колонку N,
+-- поскольку в задании не было требования об уникальности колонки
+-- сэкнономим на обновлении индекса при вставке
 create table test_data (
     n number,
     clnt_id number,
