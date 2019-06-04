@@ -45,15 +45,13 @@ create or replace package body amount_api_pkg is
             voucher_code,
             change_amount,
             change_date,
-            line_status,
-            error_text
+            line_status
         )
         select e.subscriber_id
              , e.voucher_code
              , e.change_amount
              , e.change_date
-             , RC_ALL_IS_OKAY
-             , NULL
+             , STATUS_READY
        from table(p_rec_table) e;
     end;
 
@@ -141,7 +139,7 @@ create or replace package body amount_api_pkg is
         into l_int_rec_tab
         from amount_interface_lines e
         where 1=1
-        and e.line_status = RC_ALL_IS_OKAY
+        and e.line_status = STATUS_READY
         and (rownum <= p_line_count or p_line_count is null)
         for update skip locked;
 
@@ -153,18 +151,21 @@ create or replace package body amount_api_pkg is
                 validate_record(l_rec, l_result_code);
 
                 if l_result_code != RC_ALL_IS_OKAY then
-                    l_rec.line_status := l_result_code;
+                    l_rec.error_code := l_result_code;
                     l_rec.ERROR_TEXT := get_error_text(l_result_code);
+                    l_rec.LINE_STATUS := STATUS_ERROR;
 
                     l_err_rec_tab.extend;
                     l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
                 elsif lock_subs_row(l_rec.SUBSCRIBER_ID) = false then
-                    l_rec.line_status := RC_SUBS_LOCKED;
-                    l_rec.ERROR_TEXT := get_error_text(l_rec.line_status);
+                    l_rec.error_code := RC_SUBS_LOCKED;
+                    l_rec.ERROR_TEXT := get_error_text(l_rec.error_code);
+                    l_rec.LINE_STATUS := STATUS_ERROR;
 
                     l_err_rec_tab.extend;
                     l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
                 else
+                    l_rec.LINE_STATUS := STATUS_PROCESSED;
                     l_rdy_rec_tab(l_rdy_rec_tab.count + 1) := l_rec;
                 end if;
 
@@ -193,8 +194,9 @@ create or replace package body amount_api_pkg is
                       LOOP
                         l_idx := SQL%BULK_EXCEPTIONS (idx).ERROR_INDEX;
                         l_rec := l_rdy_rec_tab(l_idx);
-                        l_rec.LINE_STATUS := SQL%BULK_EXCEPTIONS (idx).ERROR_CODE;
-                        l_rec.ERROR_TEXT := sqlerrm(l_rec.LINE_STATUS);
+                        l_rec.error_code := SQL%BULK_EXCEPTIONS (idx).ERROR_CODE;
+                        l_rec.ERROR_TEXT := sqlerrm(l_rec.error_code);
+                        l_rec.LINE_STATUS := STATUS_ERROR;
 
                         l_err_rec_tab.extend;
                         l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
@@ -208,6 +210,12 @@ create or replace package body amount_api_pkg is
                 set s.CURRENT_AMOUNT = s.CURRENT_AMOUNT + l_rdy_rec_tab(i).CHANGE_AMOUNT
                 where s.SUBSCRIBER_ID = l_rdy_rec_tab(i).SUBSCRIBER_ID;
 
+                forall i in indices of l_rdy_rec_tab
+                update amount_interface_lines s
+                set s.LINE_STATUS = l_rdy_rec_tab(i).LINE_STATUS
+                where s.SUBSCRIBER_ID = l_rdy_rec_tab(i).SUBSCRIBER_ID
+                  and s.VOUCHER_CODE =  l_rdy_rec_tab(i).VOUCHER_CODE;
+
             end if;
 
             if l_err_rec_tab.count > 0 then
@@ -215,7 +223,8 @@ create or replace package body amount_api_pkg is
                     forall i in l_err_rec_tab.first .. l_err_rec_tab.last
                     update amount_interface_lines e
                     set e.ERROR_TEXT = l_err_rec_tab(i).ERROR_TEXT
-                      , e.LINE_STATUS =  l_err_rec_tab(i).LINE_STATUS
+                      , e.error_code = l_err_rec_tab(i).error_code
+                      , e.LINE_STATUS = l_err_rec_tab(i).LINE_STATUS
                     where e.VOUCHER_CODE = l_err_rec_tab(i).VOUCHER_CODE
                     and e.SUBSCRIBER_ID = l_err_rec_tab(i).SUBSCRIBER_ID;
                 exception

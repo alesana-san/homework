@@ -9,6 +9,10 @@ create or replace package amount_api_pkg is
     RC_SUBS_LOCKED          constant number := -20106;
     RC_ALL_IS_OKAY          constant number := 0;
 
+    STATUS_READY            constant number := 1;
+    STATUS_ERROR            constant number := 2;
+    STATUS_PROCESSED        constant number := 3;
+
     -- процедура вставки коллекции записей
     procedure insert_records(p_rec_table in out nocopy amount_tab);
 
