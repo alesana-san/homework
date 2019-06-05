@@ -1,4 +1,3 @@
-drop table amount_history;
 create table amount_history (
     subscriber_id       number not null references subscribers,
     voucher_code        varchar2(100) not null,

@@ -1,6 +1,7 @@
 create or replace package body amount_api_pkg is
 
-    type t_int_tab is table of amount_interface_lines%rowtype;
+    -- заводим вспомогательные типы и исключения
+    type t_int_tab is table of amount_interface_lines%rowtype index by BINARY_INTEGER;
 
     dml_errors   EXCEPTION;
     PRAGMA EXCEPTION_INIT (dml_errors, -24381);
@@ -8,6 +9,19 @@ create or replace package body amount_api_pkg is
     resource_busy   EXCEPTION;
     PRAGMA EXCEPTION_INIT (resource_busy, -54);
 
+    -- процедура очистки выполненных/ошибочных записей
+    PROCEDURE purge_records(p_rec_type in number default STATUS_PROCESSED)
+    is
+    begin
+        if p_rec_type in (STATUS_ERROR, STATUS_PROCESSED) then
+            delete from AMOUNT_INTERFACE_LINES e
+            where e.LINE_STATUS = p_rec_type;
+
+            commit;
+        END IF;
+    end;
+
+    -- функция возвращает текст ошибки по коду
     function get_error_text(p_err_code in number) return varchar2
     is
         l_text_msg  varchar2(4000);
@@ -41,13 +55,15 @@ create or replace package body amount_api_pkg is
     is
     begin
         insert into amount_interface_lines (
+            seq_id,
             subscriber_id,
             voucher_code,
             change_amount,
             change_date,
             line_status
         )
-        select e.subscriber_id
+        select int_seq.nextval
+             , e.subscriber_id
              , e.voucher_code
              , e.change_amount
              , e.change_date
@@ -155,14 +171,12 @@ create or replace package body amount_api_pkg is
                     l_rec.ERROR_TEXT := get_error_text(l_result_code);
                     l_rec.LINE_STATUS := STATUS_ERROR;
 
-                    l_err_rec_tab.extend;
                     l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
                 elsif lock_subs_row(l_rec.SUBSCRIBER_ID) = false then
                     l_rec.error_code := RC_SUBS_LOCKED;
                     l_rec.ERROR_TEXT := get_error_text(l_rec.error_code);
                     l_rec.LINE_STATUS := STATUS_ERROR;
 
-                    l_err_rec_tab.extend;
                     l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
                 else
                     l_rec.LINE_STATUS := STATUS_PROCESSED;
@@ -195,10 +209,9 @@ create or replace package body amount_api_pkg is
                         l_idx := SQL%BULK_EXCEPTIONS (idx).ERROR_INDEX;
                         l_rec := l_rdy_rec_tab(l_idx);
                         l_rec.error_code := SQL%BULK_EXCEPTIONS (idx).ERROR_CODE;
-                        l_rec.ERROR_TEXT := sqlerrm(l_rec.error_code);
+                        l_rec.ERROR_TEXT := sqlerrm(-l_rec.error_code);
                         l_rec.LINE_STATUS := STATUS_ERROR;
 
-                        l_err_rec_tab.extend;
                         l_err_rec_tab(l_err_rec_tab.count + 1) := l_rec;
 
                         l_rdy_rec_tab.delete(l_idx);
@@ -213,8 +226,7 @@ create or replace package body amount_api_pkg is
                 forall i in indices of l_rdy_rec_tab
                 update amount_interface_lines s
                 set s.LINE_STATUS = l_rdy_rec_tab(i).LINE_STATUS
-                where s.SUBSCRIBER_ID = l_rdy_rec_tab(i).SUBSCRIBER_ID
-                  and s.VOUCHER_CODE =  l_rdy_rec_tab(i).VOUCHER_CODE;
+                where s.SEQ_ID = l_rdy_rec_tab(i).SEQ_ID;
 
             end if;
 
@@ -225,11 +237,10 @@ create or replace package body amount_api_pkg is
                     set e.ERROR_TEXT = l_err_rec_tab(i).ERROR_TEXT
                       , e.error_code = l_err_rec_tab(i).error_code
                       , e.LINE_STATUS = l_err_rec_tab(i).LINE_STATUS
-                    where e.VOUCHER_CODE = l_err_rec_tab(i).VOUCHER_CODE
-                    and e.SUBSCRIBER_ID = l_err_rec_tab(i).SUBSCRIBER_ID;
+                    where e.SEQ_ID = l_err_rec_tab(i).SEQ_ID;
                 exception
                     when others then
-                        null;
+                        dbms_output.put_line('error: ' || DBMS_UTILITY.format_error_backtrace);
                 end;
             end if;
 
@@ -239,7 +250,8 @@ create or replace package body amount_api_pkg is
 
     exception
         when others then
-            null;
+            dbms_output.put_line('unhandled: ' || DBMS_UTILITY.format_error_backtrace);
     end;
 
 end amount_api_pkg;
+/

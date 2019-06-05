@@ -1,5 +1,5 @@
-drop table amount_interface_lines;
 create table amount_interface_lines (
+    seq_id              number,
     subscriber_id       number,
     voucher_code        varchar2(100),
     change_amount       number(15,2),
@@ -20,3 +20,5 @@ comment on column amount_interface_lines.error_text is 'Текст ошибки 
 
 create index amount_interface_lines_i1 on amount_interface_lines(subscriber_id, voucher_code);
 create index amount_interface_lines_i2 on amount_interface_lines(line_status);
+
+create SEQUENCE int_seq;

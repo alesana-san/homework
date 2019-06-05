@@ -20,4 +20,8 @@ create or replace package amount_api_pkg is
     -- если p_line_count = NULL, обрабатываем всю таблицу
     procedure process_interface(p_line_count in number default null);
 
+    -- процедура очистки выполненных/ошибочных записей
+    PROCEDURE purge_records(p_rec_type in number default STATUS_PROCESSED);
+
 end amount_api_pkg;
+/

@@ -1,4 +1,3 @@
-drop table subscribers;
 create table subscribers (
     subscriber_id               number primary key,
     current_amount              number(15,2) not null,
